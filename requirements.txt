@@ -1,0 +1,4 @@
+requests>=2.31
+python-dotenv>=1.0
+SQLAlchemy>=2.0
+networkx>=3.2
