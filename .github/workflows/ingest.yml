@@ -5,6 +5,11 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
 
+permissions:
+  contents: write  # needed so the "commit updated database" step can push.
+                    # Without this, many orgs/repos default Actions to
+                    # read-only and the push silently fails with a 403.
+
 jobs:
   poll:
     runs-on: ubuntu-latest
@@ -21,8 +26,14 @@ jobs:
       - name: Run ingestion
         env:
           TFL_APP_KEY: ${{ secrets.TFL_APP_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
         run: python -m scripts.run_ingestion
 
+      # SQLite lives in the repo for Phase 1, so the DB file has to be
+      # committed back after each run. This is a fine hack for a hobby
+      # project's polling cadence, but it's the first thing to drop when
+      # migrating to Postgres in a later phase - a real DB removes this
+      # step entirely.
       - name: Commit updated database
         run: |
           git config user.name "tube-bot"

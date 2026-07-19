@@ -87,6 +87,46 @@ def render_journey_planner():
 
         st.caption(f"{route.total_stops} stops total, {route.interchanges} change(s)")
 
+def render_cascade_preview():
+    st.subheader("Cascade analysis")
+ 
+    if not os.path.exists(CENTRALITY_PATH):
+        st.info(
+            "**Coming in Phase 2.** Run `python -m scripts.analyze_network` "
+            "to generate a structural preview in the meantime."
+        )
+        return
+ 
+    with open(CENTRALITY_PATH) as f:
+        centrality = json.load(f)
+ 
+    st.caption(
+        "Full disruption-cascade *prediction* (how often a delay on one "
+        "line historically ripples to others) needs Phase 2 history data "
+        "and isn't built yet. What's shown below is groundwork that "
+        "doesn't need any of that: which stations are structurally most "
+        "critical, based purely on the network's shape. A disruption at "
+        "a high-betweenness station is more likely to force reroutes "
+        "across the network, regardless of what the data eventually shows."
+    )
+ 
+    ranked = sorted(
+        centrality.values(), key=lambda r: r["betweenness"], reverse=True
+    )[:15]
+ 
+    st.dataframe(
+        [
+            {
+                "Station": r["name"],
+                "Betweenness": r["betweenness"],
+                "Lines through station": r["line_count"],
+            }
+            for r in ranked
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+
 def render_placeholder(title: str, description: str):
     st.subheader(title)
     st.info(f"**Not yet implemented.** {description}")
@@ -110,11 +150,7 @@ def main():
     with tabs[1]:
         render_journey_planner()
     with tabs[2]:
-        render_placeholder(
-            "Cascade analysis",
-            "How a disruption on one line historically propagates to "
-            "others through interchange stations.",
-        )
+        render_cascade_preview()
     with tabs[3]:
         render_placeholder(
             "Reliability",
