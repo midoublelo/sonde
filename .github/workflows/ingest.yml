@@ -10,6 +10,10 @@ permissions:
                     # Without this, many orgs/repos default Actions to
                     # read-only and the push silently fails with a 403.
 
+concurrency:
+  group: tube-ingestion
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
@@ -29,15 +33,11 @@ jobs:
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
         run: python -m scripts.run_ingestion
 
-      # SQLite lives in the repo for Phase 1, so the DB file has to be
-      # committed back after each run. This is a fine hack for a hobby
-      # project's polling cadence, but it's the first thing to drop when
-      # migrating to Postgres in a later phase - a real DB removes this
-      # step entirely.
       - name: Commit updated database
         run: |
           git config user.name "tube-bot"
           git config user.email "tube-bot@users.noreply.github.com"
           git add data/tube.db
           git diff --staged --quiet || git commit -m "Ingest: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git pull --rebase --autostash
           git push
