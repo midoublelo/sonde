@@ -1,17 +1,27 @@
+import json
+import os
+
 import streamlit as st
 
+from scripts.build_db import rebuild as rebuild_db_from_logs
 from src.graph.tube_graph import load_graph
 from src.routing.live_routing import find_route_live, get_latest_snapshots
 from src.routing.pathfinder import StationNotFoundError, find_route
-from src.storage.db import get_session
+from src.storage.db import get_session, init_db
+from src.storage.models import WeatherSnapshot
+from sqlalchemy import select
 
 GRAPH_PATH = "data/tube_graph.json"
+CENTRALITY_PATH = "data/station_centrality.json"
 
 st.set_page_config(page_title="sonde", page_icon="\U0001f687", layout="wide")
+init_db()  # idempotent - ensures tables exist even before the first "Refresh from logs"
+
 
 @st.cache_resource
 def get_graph():
     return load_graph(GRAPH_PATH)
+
 
 def render_live_status():
     st.subheader("Current line status")
@@ -19,6 +29,16 @@ def render_live_status():
 
     with get_session() as session:
         snapshots = get_latest_snapshots(session)
+        weather = session.execute(
+            select(WeatherSnapshot).order_by(WeatherSnapshot.polled_at.desc())
+        ).scalars().first()
+
+    if weather:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("London weather", weather.weather_description.title())
+        col2.metric("Temperature", f"{weather.temp_c:.1f}°C")
+        col3.metric("Rain (last hr)", f"{weather.rain_1h_mm or 0:.1f} mm")
+        st.divider()
 
     if not snapshots:
         st.info(
@@ -43,6 +63,7 @@ def render_live_status():
                 st.caption(snap.reason)
         st.caption(f"as of {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}")
         st.divider()
+
 
 def render_journey_planner():
     st.subheader("Journey planner")
@@ -87,19 +108,20 @@ def render_journey_planner():
 
         st.caption(f"{route.total_stops} stops total, {route.interchanges} change(s)")
 
+
 def render_cascade_preview():
     st.subheader("Cascade analysis")
- 
+
     if not os.path.exists(CENTRALITY_PATH):
         st.info(
             "**Coming in Phase 2.** Run `python -m scripts.analyze_network` "
             "to generate a structural preview in the meantime."
         )
         return
- 
+
     with open(CENTRALITY_PATH) as f:
         centrality = json.load(f)
- 
+
     st.caption(
         "Full disruption-cascade *prediction* (how often a delay on one "
         "line historically ripples to others) needs Phase 2 history data "
@@ -109,11 +131,11 @@ def render_cascade_preview():
         "a high-betweenness station is more likely to force reroutes "
         "across the network, regardless of what the data eventually shows."
     )
- 
+
     ranked = sorted(
         centrality.values(), key=lambda r: r["betweenness"], reverse=True
     )[:15]
- 
+
     st.dataframe(
         [
             {
@@ -127,12 +149,23 @@ def render_cascade_preview():
         width="stretch",
     )
 
+
 def render_placeholder(title: str, description: str):
     st.subheader(title)
     st.info(f"**Not yet implemented.** {description}")
 
+
 def main():
-    st.title("sonde")
+    st.title("\U0001f687 sonde")
+
+    with st.sidebar:
+        st.caption(
+            "Data comes from git-tracked logs (data/logs/*.jsonl), not "
+            "directly from the database - refresh after pulling new commits."
+        )
+        if st.button("\U0001f504 Refresh from logs"):
+            tube_count, weather_count = rebuild_db_from_logs()
+            st.success(f"Rebuilt: {tube_count} Tube rows, {weather_count} weather rows")
 
     tabs = st.tabs(
         [
@@ -169,6 +202,7 @@ def main():
             "Whether busier stations see more delays, using TfL station "
             "usage data.",
         )
+
 
 if __name__ == "__main__":
     main()

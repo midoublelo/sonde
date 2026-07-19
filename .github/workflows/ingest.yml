@@ -1,4 +1,4 @@
-name: Ingest Tube status
+name: tube and weather ingestion data
 
 on:
   schedule:
@@ -9,7 +9,6 @@ permissions:
   contents: write  # needed so the "commit updated database" step can push.
                     # Without this, many orgs/repos default Actions to
                     # read-only and the push silently fails with a 403.
-
 concurrency:
   group: tube-ingestion
   cancel-in-progress: false
@@ -33,11 +32,11 @@ jobs:
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
         run: python -m scripts.run_ingestion
 
-      - name: Commit updated database
+      - name: Commit updated logs
         run: |
           git config user.name "tube-bot"
           git config user.email "tube-bot@users.noreply.github.com"
-          git add data/tube.db
+          git add data/logs/tube_status.jsonl data/logs/weather.jsonl
           git diff --staged --quiet || git commit -m "Ingest: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git pull --rebase --autostash
           git push

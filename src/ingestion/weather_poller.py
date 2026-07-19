@@ -1,31 +1,38 @@
 import logging
+from datetime import datetime, timezone
  
-from src.ingestion.weather_client import get_current_weather
-from src.storage.db import get_session
-from src.storage.models import WeatherSnapshot
+from src.ingestion.tfl_client import get_line_status
+from src.storage.log_store import append_jsonl
  
 logger = logging.getLogger(__name__)
  
-def poll_and_store_weather() -> None:
-    data = get_current_weather()
+LOG_PATH = "data/logs/tube_status.jsonl"
  
-    weather = data["weather"][0]
-    main = data["main"]
  
-    snapshot = WeatherSnapshot(
-        temp_c=main["temp"],
-        feels_like_c=main["feels_like"],
-        humidity_pct=main["humidity"],
-        wind_speed_mps=data["wind"]["speed"],
-        weather_main=weather["main"],
-        weather_description=weather["description"],
-        rain_1h_mm=data.get("rain", {}).get("1h"),
-        snow_1h_mm=data.get("snow", {}).get("1h"),
-    )
+def poll_and_store(mode: str = "tube") -> int:
+    """Fetch current line status and append it to the log. Returns rows written."""
+    lines = get_line_status(mode=mode)
+    polled_at = datetime.now(timezone.utc).isoformat()
  
-    with get_session() as session:
-        session.add(snapshot)
+    count = 0
+    for line in lines:
+        # A line can technically have >1 active status; TfL returns them
+        # all in lineStatuses. We log each as its own record rather than
+        # picking "the worst one", so no information is thrown away.
+        for status in line.get("lineStatuses", []):
+            append_jsonl(
+                LOG_PATH,
+                {
+                    "line_id": line["id"],
+                    "line_name": line["name"],
+                    "status_severity": status["statusSeverity"],
+                    "status_description": status["statusSeverityDescription"],
+                    "reason": status.get("reason"),
+                    "polled_at": polled_at,
+                },
+            )
+            count += 1
  
-    logger.info(
-        "Stored weather snapshot: %s, %.1fC", weather["description"], main["temp"]
-    )
+    logger.info("Appended %d line status record(s) to %s", count, LOG_PATH)
+    return count
+ 
