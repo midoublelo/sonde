@@ -23,11 +23,6 @@ jobs:
           TFL_APP_KEY: ${{ secrets.TFL_APP_KEY }}
         run: python -m scripts.run_ingestion
 
-      # SQLite lives in the repo for Phase 1, so the DB file has to be
-      # committed back after each run. This is a fine hack for a hobby
-      # project's polling cadence, but it's the first thing to drop when
-      # migrating to Postgres in a later phase - a real DB removes this
-      # step entirely.
       - name: Commit updated database
         run: |
           git config user.name "tube-bot"

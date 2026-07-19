@@ -14,3 +14,7 @@ python -m scripts.run_ingestion   # do one poll to confirm it works
 ```bash
 python -m scripts.find_route "Oxford Circus" "King's Cross"
 ```
+
+```
+streamlit run app.py
+```
