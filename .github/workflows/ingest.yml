@@ -4,11 +4,11 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+  push:
+    branches: [main]
 
 permissions:
-  contents: write  # needed so the "commit updated database" step can push.
-                    # Without this, many orgs/repos default Actions to
-                    # read-only and the push silently fails with a 403.
+  contents: write
 concurrency:
   group: tube-ingestion
   cancel-in-progress: false

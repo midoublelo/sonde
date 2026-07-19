@@ -15,13 +15,19 @@ GRAPH_PATH = "data/tube_graph.json"
 CENTRALITY_PATH = "data/station_centrality.json"
 
 st.set_page_config(page_title="sonde", page_icon="\U0001f687", layout="wide")
-init_db()  # idempotent - ensures tables exist even before the first "Refresh from logs"
+init_db() 
 
+@st.cache_data(ttl=300)
+def _cached_rebuild():
+    return rebuild_db_from_logs()
+
+_cached_rebuild()
 
 @st.cache_resource
 def get_graph():
+    if not os.path.exists(GRAPH_PATH):
+        return None
     return load_graph(GRAPH_PATH)
-
 
 def render_live_status():
     st.subheader("Current line status")
@@ -64,7 +70,6 @@ def render_live_status():
         st.caption(f"as of {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}")
         st.divider()
 
-
 def render_journey_planner():
     st.subheader("Journey planner")
     st.caption(
@@ -87,6 +92,12 @@ def render_journey_planner():
 
     if st.button("Find route", type="primary") and origin and destination:
         graph = get_graph()
+        if graph is None:
+            st.error(
+                f"No network graph found at `{GRAPH_PATH}`. Run "
+                "`python -m scripts.build_graph` and commit the result."
+            )
+            return
         try:
             if live:
                 with get_session() as session:
@@ -107,7 +118,6 @@ def render_journey_planner():
                     st.markdown(f":orange[Currently: {leg.status_note}]")
 
         st.caption(f"{route.total_stops} stops total, {route.interchanges} change(s)")
-
 
 def render_cascade_preview():
     st.subheader("Cascade analysis")
@@ -149,22 +159,21 @@ def render_cascade_preview():
         width="stretch",
     )
 
-
 def render_placeholder(title: str, description: str):
     st.subheader(title)
     st.info(f"**Not yet implemented.** {description}")
-
 
 def main():
     st.title("\U0001f687 sonde")
 
     with st.sidebar:
         st.caption(
-            "Data comes from git-tracked logs (data/logs/*.jsonl), not "
-            "directly from the database - refresh after pulling new commits."
+            "Data auto-refreshes from git-tracked logs (data/logs/*.jsonl) "
+            "every few minutes. Use this to force an immediate refresh."
         )
-        if st.button("\U0001f504 Refresh from logs"):
-            tube_count, weather_count = rebuild_db_from_logs()
+        if st.button("\U0001f504 Force refresh now"):
+            _cached_rebuild.clear()
+            tube_count, weather_count = _cached_rebuild()
             st.success(f"Rebuilt: {tube_count} Tube rows, {weather_count} weather rows")
 
     tabs = st.tabs(
@@ -202,7 +211,6 @@ def main():
             "Whether busier stations see more delays, using TfL station "
             "usage data.",
         )
-
 
 if __name__ == "__main__":
     main()
