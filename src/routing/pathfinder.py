@@ -112,3 +112,22 @@ def find_route(graph: nx.MultiGraph, origin: str, destination: str) -> Route:
 
     path = nx.shortest_path(graph, origin_id, dest_id)
     return Route(legs=build_legs(graph, path))
+
+def find_route_by_ids(graph, origin_id, destination_id):
+    path = nx.shortest_path(graph, origin_id, destination_id)
+    return Route(legs=build_legs(graph, path)), path
+
+_MINUTES_PER_STOP = 2.0
+_MINUTES_PER_INTERCHANGE = 5.0
+
+def estimated_minutes(self) -> float:
+    """
+    Rough journey-time estimate from structure alone: stops x avg
+    run-time, plus an interchange penalty for each line change.
+    This is an APPROXIMATION - real times vary by line, time of day,
+    and current disruptions, none of which this accounts for.
+    """
+    return (
+        self.total_stops * _MINUTES_PER_STOP
+        + self.interchanges * _MINUTES_PER_INTERCHANGE
+    )

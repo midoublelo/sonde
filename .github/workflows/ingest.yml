@@ -2,8 +2,8 @@ name: tube and weather ingestion data
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch: {}
   push:
     branches: [main]
 
