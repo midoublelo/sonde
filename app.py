@@ -22,7 +22,9 @@ from src.analytics.history import (
     status_timeline_categorical,
     weather_disruption_crosstab,
     affected_stations,
-    categorize_status
+    categorize_status,
+    disruption_rate_by,
+    detect_anomalies
 )
 
 GRAPH_PATH = "data/tube_graph.json"
@@ -125,7 +127,7 @@ def render_journey_planner():
         for leg in route.legs:
             with st.container(border=True):
                 st.markdown(
-                    f"**{leg.line_name} line** — {leg.from_station} → "
+                    f"**{leg.line_name} line** - {leg.from_station} → "
                     f"{leg.to_station} ({leg.stops} stop{'s' if leg.stops != 1 else ''})"
                 )
                 if leg.status_note:
@@ -344,8 +346,8 @@ def render_station_detail(graph, status_df, station_id):
 
     # Show current selection + clear option
     if origin_id or dest_id:
-        o_name = graph.nodes[origin_id]["name"] if origin_id else "—"
-        d_name = graph.nodes[dest_id]["name"] if dest_id else "—"
+        o_name = graph.nodes[origin_id]["name"] if origin_id else "-"
+        d_name = graph.nodes[dest_id]["name"] if dest_id else "-"
         st.caption(f"From: {o_name}  →  To: {d_name}")
         if st.button("Clear journey", key="clear_journey"):
             st.session_state.pop("journey_origin", None)
@@ -356,7 +358,7 @@ def render_station_detail(graph, status_df, station_id):
 
     # --- Current status of serving lines (unchanged) ---
     lines = _station_lines(graph, station_id)
-    st.markdown("**Lines serving this station — current status:**")
+    st.markdown("**Lines serving this station - current status:**")
     if status_df.empty:
         st.caption("No status data yet.")
     else:
@@ -383,7 +385,7 @@ def render_station_detail(graph, status_df, station_id):
 def render_map_view():
     graph = get_graph()
     if graph is None:
-        st.error("No network graph found — run scripts.build_graph.")
+        st.error("No network graph found - run scripts.build_graph.")
         return
 
     status_df = load_status_history()
@@ -413,7 +415,7 @@ def render_map_view():
         if route:
             st.markdown("**Planned route:**")
             for leg in route.legs:
-                note = f" — :orange[{leg.status_note}]" if leg.status_note else ""
+                note = f" - :orange[{leg.status_note}]" if leg.status_note else ""
                 st.markdown(
                     f"- {leg.line_name}: {leg.from_station} → "
                     f"{leg.to_station} ({leg.stops} stops){note}"
@@ -432,6 +434,101 @@ def render_map_view():
         render_station_detail(graph, status_df,
                               st.session_state.get("selected_station"))
 
+def render_anomalies():
+    st.subheader("Anomaly detection")
+    st.caption(
+        "Flags lines disrupted RIGHT NOW at an hour when they're "
+        "historically reliable - a disruption unusual for this time of "
+        "day, not just any disruption. Compares current status against "
+        "each line's own historical rate for this hour."
+    )
+
+    status_df = load_status_history()
+    if status_df.empty:
+        st.info("No status history yet.")
+        return
+
+    anomalies = detect_anomalies(status_df)
+    if anomalies.empty:
+        st.success("No lines are currently disrupted - nothing to flag.")
+        return
+
+    # Surface genuine anomalies prominently.
+    flagged = anomalies[anomalies["Verdict"] == "Anomalous"]
+    if not flagged.empty:
+        for _, row in flagged.iterrows():
+            st.warning(
+                f"**{row['Line']}** - {row['Current status']} at "
+                f"{row['Hour']:02d}:00, but historically disrupted only "
+                f"{row['Historical rate this hour (%)']}% of the time at "
+                f"this hour ({row['Observations']} observations)."
+            )
+    else:
+        st.info("Nothing currently anomalous for the time of day.")
+
+    st.markdown("**All currently-disrupted lines:**")
+    st.dataframe(anomalies, hide_index=True, width="stretch")
+    st.caption(
+        f'"Insufficient data" means fewer than {8} historical '
+        "observations for that line at this hour - not enough to judge, "
+        "so deliberately not flagged either way."
+    )
+
+def render_patterns():
+    st.subheader("Disruption patterns")
+    st.caption(
+        "Historical unplanned-disruption rates (scheduled closures excluded)"
+    )
+
+    status_df = load_status_history()
+    if status_df.empty:
+        st.info("No status history yet.")
+        return
+
+    # --- By hour of day ---
+    st.markdown("**By hour of day** (local time)")
+    by_hour = disruption_rate_by(status_df, "hour")
+    if not by_hour.empty:
+        chart = (
+            alt.Chart(by_hour)
+            .mark_bar()
+            .encode(
+                x=alt.X("hour:O", title="Hour of day"),
+                y=alt.Y("rate_pct:Q", title="Disruption rate (%)"),
+                tooltip=["hour", "rate_pct", "observations", "disruptions"],
+            )
+            .properties(height=250)
+        )
+        st.altair_chart(chart, use_container_width=True)
+        st.caption(
+            "Hover for observation counts."
+        )
+
+    st.markdown("**By line**")
+    by_line = disruption_rate_by(status_df, "line_name").sort_values(
+        "rate_pct", ascending=False
+    )
+    if not by_line.empty:
+        st.dataframe(
+            by_line.rename(columns={
+                "line_name": "Line", "observations": "Observations",
+                "disruptions": "Disruptions", "rate_pct": "Rate (%)",
+            }),
+            hide_index=True, width="stretch",
+        )
+
+    st.markdown("**Weekday vs weekend**")
+    by_wk = disruption_rate_by(status_df, "is_weekend")
+    if not by_wk.empty:
+        by_wk["Period"] = by_wk["is_weekend"].map({False: "Weekday", True: "Weekend"})
+        st.dataframe(
+            by_wk[["Period", "observations", "disruptions", "rate_pct"]].rename(
+                columns={"observations": "Observations",
+                         "disruptions": "Disruptions", "rate_pct": "Rate (%)"}
+            ),
+            hide_index=True, width="stretch",
+        )
+
 def render_placeholder(title: str, description: str):
     st.subheader(title)
     st.info(f"**Not yet implemented.** {description}")
@@ -443,8 +540,8 @@ def render_sidebar(graph, status_df):
         dest_id = st.session_state.get("journey_dest")
 
         if origin_id or dest_id:
-            o = graph.nodes[origin_id]["name"] if origin_id else "—"
-            d = graph.nodes[dest_id]["name"] if dest_id else "—"
+            o = graph.nodes[origin_id]["name"] if origin_id else "-"
+            d = graph.nodes[dest_id]["name"] if dest_id else "-"
             st.markdown(f"**From:** {o}")
             st.markdown(f"**To:** {d}")
             if st.button("Clear journey", width="stretch"):
@@ -477,7 +574,7 @@ def render_sidebar(graph, status_df):
                 for line_id, cat in sorted(bad.items()):
                     name = latest.loc[line_id, "line_name"]
                     reason = latest.loc[line_id, "reason"]
-                    with st.expander(f"{name} — {cat}"):
+                    with st.expander(f"{name} - {cat}"):
                         if reason and str(reason).strip() and str(reason) != "nan":
                             st.caption(reason)
                         else:
@@ -501,7 +598,7 @@ def render_sidebar(graph, status_df):
             st.success(f"Rebuilt: {tube_count} Tube, {weather_count} weather")
 
 def main():
-    st.title("\U0001f687 sonde")
+    st.title("sonde")
 
     graph = get_graph()
     status_df = load_status_history()
@@ -519,7 +616,7 @@ def main():
             "Cascade Analysis",
             "Reliability",
             "Anomalies",
-            "Footfall",
+            "Patterns",
         ]
     )
 
@@ -533,17 +630,9 @@ def main():
         render_weather_crosstab()
         render_affected_stations()
     with tabs[3]:
-        render_placeholder(
-            "Anomaly detection",
-            "Flags disruptions that are unusual for a given line and "
-            "time, not just any disruption.",
-        )
+        render_anomalies()
     with tabs[4]:
-        render_placeholder(
-            "Footfall correlation",
-            "Whether busier stations see more delays, using TfL station "
-            "usage data.",
-        )
+        render_patterns()
 
 if __name__ == "__main__":
     main()

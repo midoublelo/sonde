@@ -7,6 +7,10 @@ from sqlalchemy import select
 from src.storage.db import get_session
 from src.storage.models import LineStatusSnapshot, WeatherSnapshot
 
+_MIN_OBSERVATIONS_FOR_ANOMALY = 8
+
+_ANOMALY_RATE_THRESHOLD = 15.0
+
 def load_status_history() -> pd.DataFrame:
     with get_session() as session:
         rows = session.execute(
@@ -55,35 +59,37 @@ def reliability_scoreboard(status_df: pd.DataFrame) -> pd.DataFrame:
 
     records = []
     for line_name, group in status_df.sort_values("polled_at").groupby("line_name"):
-        good_series = group["is_good"].tolist()
-        polls = len(good_series)
-        pct_good = 100 * sum(good_series) / polls if polls else 0
+        descs = group["status_description"].tolist()
+        polls = len(descs)
+        # "Disrupted" now means unplanned only - scheduled closures don't count.
+        disrupted_flags = [is_unplanned_disruption(d) for d in descs]
+        pct_disrupted = 100 * sum(disrupted_flags) / polls if polls else 0
 
         disruption_count = 0
         longest_streak = 0
         current_streak = 0
-        prev_good = True
-        for is_good in good_series:
-            if not is_good:
-                if prev_good:
+        prev_disrupted = False
+        for flag in disrupted_flags:
+            if flag:
+                if not prev_disrupted:
                     disruption_count += 1
                 current_streak += 1
                 longest_streak = max(longest_streak, current_streak)
             else:
                 current_streak = 0
-            prev_good = is_good
+            prev_disrupted = flag
 
-        records.append(
-            {
-                "Line": line_name,
-                "Polls": polls,
-                "% Good Service": round(pct_good, 1),
-                "Disruption episodes": disruption_count,
-                "Longest disrupted streak": longest_streak,
-            }
-        )
+        records.append({
+            "Line": line_name,
+            "Polls": polls,
+            "% Unplanned disruption": round(pct_disrupted, 1),
+            "Disruption episodes": disruption_count,
+            "Longest disrupted streak": longest_streak,
+        })
 
-    return pd.DataFrame(records).sort_values("% Good Service").reset_index(drop=True)
+    return pd.DataFrame(records).sort_values(
+        "% Unplanned disruption", ascending=False
+    ).reset_index(drop=True)
 
 def status_timeline(status_df: pd.DataFrame) -> pd.DataFrame:
     if status_df.empty:
@@ -116,6 +122,25 @@ _FALLBACK_RULES = [
     ("Good Service", ["good service"]),
 ]
 
+_UNPLANNED_DISRUPTION = {"Minor", "Disrupted", "Suspended"}
+
+# Note: "Part Closure" maps to "Disrupted" in _EXACT_CATEGORY but is
+# planned - so we override it here by description rather than category.
+_PLANNED_DESCRIPTIONS = {"planned closure", "part closure", "service closed"}
+
+
+def is_unplanned_disruption(description: str) -> bool:
+    """
+    True only for genuine unplanned disruption. Excludes scheduled
+    closures even though some share a category with disruptions
+    (Part Closure -> Disrupted category, but it's planned).
+    """
+    if not description:
+        return False
+    if description.strip().lower() in _PLANNED_DESCRIPTIONS:
+        return False
+    return categorize_status(description) in _UNPLANNED_DISRUPTION
+
 def categorize_status(description: str) -> str:
     if not description:
         return "Disrupted"
@@ -141,7 +166,7 @@ def weather_disruption_crosstab(status_df: pd.DataFrame, weather_df: pd.DataFram
 
     status = status_df.copy()
     status["category"] = status["status_description"].apply(categorize_status)
-    status["is_disrupted"] = status["category"] != "Good Service"
+    status["is_disrupted"] = status["status_description"].apply(is_unplanned_disruption)
 
     status = status.sort_values("polled_at")
     weather = weather_df.sort_values("polled_at")[["polled_at", "weather_main"]]
@@ -211,3 +236,100 @@ def affected_stations(status_df: pd.DataFrame, graph) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
     return df.sort_values("affected_polls", ascending=False).reset_index(drop=True)
+
+def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    local = out["polled_at"].dt.tz_convert("Europe/London")
+    out["hour"] = local.dt.hour
+    out["dayofweek"] = local.dt.dayofweek           # 0 = Monday
+    out["is_weekend"] = out["dayofweek"] >= 5
+    out["is_disrupted"] = out["status_description"].apply(is_unplanned_disruption)
+    return out
+
+
+def disruption_rate_by(df: pd.DataFrame, *group_cols) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    featured = add_time_features(df)
+    grouped = (
+        featured.groupby(list(group_cols))
+        .agg(
+            observations=("is_disrupted", "size"),
+            disruptions=("is_disrupted", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["rate_pct"] = round(
+        100 * grouped["disruptions"] / grouped["observations"], 1
+    )
+    return grouped
+
+def detect_anomalies(status_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Flag CURRENTLY-disrupted lines that are disrupted at an hour when
+    they're historically reliable. Compares each line's current status
+    against its own line x hour baseline (from disruption_rate_by).
+
+    Returns one row per currently-disrupted line with: line, current
+    status, this hour's historical rate, observations behind that rate,
+    and a verdict (Anomalous / Expected / Insufficient data).
+
+    Empty if nothing is currently disrupted.
+    """
+    if status_df.empty:
+        return pd.DataFrame()
+
+    featured = add_time_features(status_df)
+
+    # Current status = each line's most recent observation.
+    latest = featured.sort_values("polled_at").groupby("line_id").last().reset_index()
+    currently_disrupted = latest[latest["is_disrupted"]]
+    if currently_disrupted.empty:
+        return pd.DataFrame()
+
+    # Historical line x hour baseline.
+    baseline = disruption_rate_by(status_df, "line_id", "hour")
+
+    records = []
+    for _, row in currently_disrupted.iterrows():
+        line_id = row["line_id"]
+        hour = row["hour"]
+        bucket = baseline[
+            (baseline["line_id"] == line_id) & (baseline["hour"] == hour)
+        ]
+
+        if bucket.empty:
+            rate, obs = None, 0
+        else:
+            rate = float(bucket.iloc[0]["rate_pct"])
+            obs = int(bucket.iloc[0]["observations"])
+
+        if obs < _MIN_OBSERVATIONS_FOR_ANOMALY:
+            verdict = "Insufficient data"
+        elif rate <= _ANOMALY_RATE_THRESHOLD:
+            verdict = "Anomalous"
+        else:
+            verdict = "Expected"
+
+        records.append(
+            {
+                "Line": row["line_name"],
+                "Current status": row["status_description"],
+                "Hour": int(hour),
+                "Historical rate this hour (%)": rate if rate is not None else "—",
+                "Observations": obs,
+                "Verdict": verdict,
+            }
+        )
+
+    # Sort so genuine anomalies surface to the top.
+    order = {"Anomalous": 0, "Insufficient data": 1, "Expected": 2}
+    return (
+        pd.DataFrame(records)
+        .assign(_o=lambda d: d["Verdict"].map(order))
+        .sort_values("_o")
+        .drop(columns="_o")
+        .reset_index(drop=True)
+    )

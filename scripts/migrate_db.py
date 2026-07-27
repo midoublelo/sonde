@@ -1,15 +1,3 @@
-"""
-One-time migration for anyone who already has a tube.db with real
-ingested data from before this switch to log-based storage. Reads every
-existing row out of the SQLite DB and appends it to the new JSON-lines
-logs, so the hours of data already collected aren't thrown away.
-
-Safe to run even if data/tube.db doesn't exist or is empty - it'll just
-report 0 rows migrated.
-
-Usage:
-    python -m scripts.migrate_existing_db
-"""
 from sqlalchemy import select
 
 from src.storage.db import get_session
@@ -18,7 +6,6 @@ from src.storage.models import LineStatusSnapshot, WeatherSnapshot
 
 TUBE_LOG_PATH = "data/logs/tube_status.jsonl"
 WEATHER_LOG_PATH = "data/logs/weather.jsonl"
-
 
 def migrate() -> tuple[int, int]:
     with get_session() as session:
@@ -55,7 +42,6 @@ def migrate() -> tuple[int, int]:
             )
 
     return len(tube_rows), len(weather_rows)
-
 
 if __name__ == "__main__":
     tube_count, weather_count = migrate()

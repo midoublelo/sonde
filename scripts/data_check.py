@@ -161,46 +161,57 @@ def print_weather_overview(df: pd.DataFrame) -> None:
     print(f"Conditions seen:     {', '.join(sorted(df['weather_main'].unique()))}")
 
 def print_source_comparison(tube_df: pd.DataFrame, weather_df: pd.DataFrame) -> None:
-    """
-    Catches the specific failure mode where run_ingestion.py's per-source
-    try/except (see scripts/run_ingestion.py) lets one source silently
-    fail run after run while the other keeps succeeding - which shows as
-    a perfectly green GitHub Action the whole time. Comparing distinct
-    poll counts between the two tables is the one place that failure
-    actually becomes visible.
-    """
     print()
     print("=" * 60)
     print("CROSS-SOURCE COMPARISON")
     print("=" * 60)
- 
-    tube_polls = tube_df["polled_at"].nunique() if not tube_df.empty else 0
-    weather_polls = weather_df["polled_at"].nunique() if not weather_df.empty else 0
- 
-    print(f"Tube status distinct polls:  {tube_polls}")
-    print(f"Weather distinct polls:      {weather_polls}")
- 
-    if tube_polls == 0:
-        return  # nothing to compare against yet
- 
-    if weather_polls == 0 and tube_polls > 0:
+
+    if tube_df.empty:
+        print("No Tube data yet - nothing to compare.")
+        return
+    if weather_df.empty:
         print(
-            "  -> Weather has NEVER succeeded while Tube status has. Since "
-            "each source fails independently and silently (by design - "
-            "see run_ingestion.py), this won't show up as a failed Action "
-            "run. Check the 'Run ingestion' step's log output for a "
-            "'Weather ingestion failed' traceback - a 401 Unauthorized "
-            "error there usually just means a freshly-created OpenWeatherMap "
-            "key hasn't activated yet (can take a couple of hours)."
+            "  -> Weather has NEVER succeeded while Tube status has. Check "
+            "the 'Run ingestion' log for a 'Weather ingestion failed' "
+            "traceback (a 401 usually means the API key hasn't activated)."
         )
-    elif weather_polls < tube_polls * 0.7:
+        return
+
+    tube_times = pd.Series(sorted(tube_df["polled_at"].unique()))
+    weather_times = pd.Series(sorted(weather_df["polled_at"].unique()))
+    tolerance = pd.Timedelta("2min")
+
+    # For each Tube poll, is there a weather poll within tolerance?
+    paired = pd.merge_asof(
+        pd.DataFrame({"t": tube_times}),
+        pd.DataFrame({"w": weather_times, "w2": weather_times}),
+        left_on="t",
+        right_on="w",
+        direction="nearest",
+        tolerance=tolerance,
+    )
+    matched = paired["w2"].notna().sum()
+    tube_polls = len(tube_times)
+    unmatched = tube_polls - matched
+
+    print(f"Tube polls:                    {tube_polls}")
+    print(f"  with a weather poll nearby:  {matched}")
+    print(f"  with NO weather within 2min: {unmatched}")
+
+    if unmatched == 0:
+        print("  -> Every Tube poll has matching weather. Both healthy.")
+    elif unmatched <= 5:
         print(
-            f"  -> Weather is falling behind Tube status ({weather_polls} vs "
-            f"{tube_polls} polls) - check the Action logs for intermittent "
-            "weather failures."
+            f"  -> {unmatched} Tube poll(s) lack nearby weather - consistent "
+            "with the known startup delay before the weather API key "
+            "activated, not an ongoing problem."
         )
     else:
-        print("  -> Both sources are keeping pace with each other.")
+        print(
+            f"  -> {unmatched} Tube polls have no nearby weather. If this "
+            "keeps growing over time, investigate intermittent weather "
+            "failures; if it's stable, it's just historical startup gap."
+        )
 
 def print_missing_lines(df: pd.DataFrame) -> None:
     print()

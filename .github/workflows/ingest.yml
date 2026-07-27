@@ -2,7 +2,7 @@ name: tube and weather ingestion data
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch: {}
   push:
     branches: [main]

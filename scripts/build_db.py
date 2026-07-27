@@ -1,23 +1,3 @@
-"""
-Rebuilds the local SQLite database from the git-tracked logs
-(data/logs/tube_status.jsonl and data/logs/weather.jsonl). The logs are
-the source of truth now; the SQLite file is a disposable, locally-built
-query cache that's no longer committed to git (see .gitignore).
-
-Run this after `git pull` (whenever the logs might have new data), and
-before using the dashboard, sanity check, or journey planner's --live
-flag. It's a full rebuild every time, not an incremental update -
-simplest correctness guarantee, and at this project's data volume
-(a poll every 15 min) it'll stay fast for a very long time.
-
-Deduplicates defensively: if the same (line_id, polled_at) or weather
-polled_at appears more than once (e.g. two overlapping runs happened to
-poll at the exact same moment), only one copy is kept - a poll being
-logged twice is a much safer failure mode than a poll being lost.
-
-Usage:
-    python -m scripts.build_db_from_logs
-"""
 from datetime import datetime
 
 from src.storage.db import get_session, init_db
