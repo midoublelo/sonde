@@ -21,3 +21,16 @@ streamlit run app.py
 ```bash
 python -m scripts.analyze_network
 ```
+
+## Spark analysis (optional)
+
+The "Spark" tab reads pre-computed results from a separate
+Scala/Apache Spark batch pipeline (`sonde-spark/`), rather than the
+Python/SQLite path used elsewhere in the app.
+
+To regenerate:
+```
+cd sonde-spark
+sbt run
+# pick WriteAnalysisOutputs if prompted for a main class
+```

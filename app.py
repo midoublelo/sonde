@@ -27,6 +27,12 @@ from src.analytics.history import (
     detect_anomalies
 )
 
+from src.analytics.spark_results import (
+    load_severity_by_line as load_spark_severity_by_line,
+    load_severity_by_weather as load_spark_severity_by_weather,
+    load_weather_correlations as load_spark_weather_correlations,
+)
+
 GRAPH_PATH = "data/tube_graph.json"
 CENTRALITY_PATH = "data/station_centrality.json"
 
@@ -529,6 +535,39 @@ def render_patterns():
             hide_index=True, width="stretch",
         )
 
+def render_spark_analysis():
+    st.subheader("Spark analysis")
+    st.caption(
+        "Same underlying data, analyzed via a separate Scala/Apache Spark "
+        "batch pipeline (sonde-spark/) rather than the Python/SQLite path "
+        "used elsewhere in this app."
+    )
+
+    by_line = load_spark_severity_by_line()
+    if by_line.empty:
+        st.info(
+            "No Spark output found yet. Run the sonde-spark "
+            "WriteAnalysisOutputs job to generate it."
+        )
+        return
+
+    st.markdown("**Average severity by line** (scheduled closures excluded)")
+    st.dataframe(by_line, hide_index=True, width="stretch")
+
+    by_weather = load_spark_severity_by_weather()
+    if not by_weather.empty:
+        st.markdown("**Average severity by weather condition**")
+        st.dataframe(by_weather, hide_index=True, width="stretch")
+
+    correlations = load_spark_weather_correlations()
+    if not correlations.empty:
+        st.markdown("**Correlation: avg severity vs. weather variables (per hour)**")
+        st.caption(
+            "Positive = associated with BETTER service (higher severity "
+            "code = better, after excluding Service Closed)."
+        )
+        st.dataframe(correlations, hide_index=True, width="stretch")
+
 def render_placeholder(title: str, description: str):
     st.subheader(title)
     st.info(f"**Not yet implemented.** {description}")
@@ -617,6 +656,7 @@ def main():
             "Reliability",
             "Anomalies",
             "Patterns",
+            "Spark"
         ]
     )
 
@@ -633,6 +673,8 @@ def main():
         render_anomalies()
     with tabs[4]:
         render_patterns()
+    with tabs[5]:
+        render_spark_analysis()
 
 if __name__ == "__main__":
     main()

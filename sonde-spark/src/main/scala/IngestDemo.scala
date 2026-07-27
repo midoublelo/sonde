@@ -19,10 +19,7 @@ object IngestDemo {
       .getOrCreate()
 
     import spark.implicits._
-
-    // sonde-spark/ sits alongside data/ in the repo, so "../data" is the
-    // relative path from sonde-spark's working directory. Adjust the glob
-    // to match your real filenames.
+    
     val tflPath = "../data/logs/tube_status.jsonl"
     val weatherPath = "../data/logs/weather.jsonl"
 
