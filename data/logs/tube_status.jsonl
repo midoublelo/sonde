@@ -10578,3 +10578,14 @@
 {"line_id": "piccadilly", "line_name": "Piccadilly", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T06:32:02.313242+00:00"}
 {"line_id": "victoria", "line_name": "Victoria", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T06:32:02.313242+00:00"}
 {"line_id": "waterloo-city", "line_name": "Waterloo & City", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T06:32:02.313242+00:00"}
+{"line_id": "bakerloo", "line_name": "Bakerloo", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "central", "line_name": "Central", "status_severity": 9, "status_description": "Minor Delays", "reason": "Central Line: Minor delays due to train cancellations. ", "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "circle", "line_name": "Circle", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "district", "line_name": "District", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "hammersmith-city", "line_name": "Hammersmith & City", "status_severity": 9, "status_description": "Minor Delays", "reason": "Hammersmith and City Line: Minor delays due to train cancellations.  ", "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "jubilee", "line_name": "Jubilee", "status_severity": 6, "status_description": "Severe Delays", "reason": "Jubilee Line: Severe delays due to an earlier person ill on a train. Tickets are being accepted on London Buses, London Overground, C2C and the Elizabeth Line. ", "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "metropolitan", "line_name": "Metropolitan", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "northern", "line_name": "Northern", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "piccadilly", "line_name": "Piccadilly", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "victoria", "line_name": "Victoria", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
+{"line_id": "waterloo-city", "line_name": "Waterloo & City", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-18T11:42:02.490559+00:00"}
