@@ -11282,3 +11282,14 @@
 {"line_id": "piccadilly", "line_name": "Piccadilly", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-28T23:54:21.910537+00:00"}
 {"line_id": "victoria", "line_name": "Victoria", "status_severity": 6, "status_description": "Severe Delays", "reason": "Victoria Line: Severe delays due to a track fault at Brixton. Tickets will be accepted on London Buses, Weaver Line, Suffragette Line, Great Northern. Thameslink, Greater Anglia, South Western Railway and Southeastern services via any reasonable route. ", "polled_at": "2026-09-28T23:54:21.910537+00:00"}
 {"line_id": "waterloo-city", "line_name": "Waterloo & City", "status_severity": 20, "status_description": "Service Closed", "reason": "Waterloo and City Line: Service will resume at 06:00. ", "polled_at": "2026-09-28T23:54:21.910537+00:00"}
+{"line_id": "bakerloo", "line_name": "Bakerloo", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "central", "line_name": "Central", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "circle", "line_name": "Circle", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "district", "line_name": "District", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "hammersmith-city", "line_name": "Hammersmith & City", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "jubilee", "line_name": "Jubilee", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "metropolitan", "line_name": "Metropolitan", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "northern", "line_name": "Northern", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "piccadilly", "line_name": "Piccadilly", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "victoria", "line_name": "Victoria", "status_severity": 9, "status_description": "Minor Delays", "reason": "Victoria Line: Minor delays due to while we fix infrastructure damage at Brixton. ", "polled_at": "2026-09-29T05:33:34.779135+00:00"}
+{"line_id": "waterloo-city", "line_name": "Waterloo & City", "status_severity": 10, "status_description": "Good Service", "reason": null, "polled_at": "2026-09-29T05:33:34.779135+00:00"}
