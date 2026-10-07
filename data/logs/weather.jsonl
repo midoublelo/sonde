@@ -1008,3 +1008,4 @@
 {"temp_c": 16.25, "feels_like_c": 16.2, "humidity_pct": 87, "wind_speed_mps": 3.6, "weather_main": "Clouds", "weather_description": "broken clouds", "rain_1h_mm": null, "snow_1h_mm": null, "polled_at": "2026-10-06T21:10:33.479468+00:00"}
 {"temp_c": 14.64, "feels_like_c": 14.51, "humidity_pct": 90, "wind_speed_mps": 1.03, "weather_main": "Clouds", "weather_description": "overcast clouds", "rain_1h_mm": null, "snow_1h_mm": null, "polled_at": "2026-10-07T00:58:35.785937+00:00"}
 {"temp_c": 14.75, "feels_like_c": 14.71, "humidity_pct": 93, "wind_speed_mps": 2.57, "weather_main": "Clouds", "weather_description": "overcast clouds", "rain_1h_mm": null, "snow_1h_mm": null, "polled_at": "2026-10-07T07:06:45.184705+00:00"}
+{"temp_c": 12.39, "feels_like_c": 12.09, "humidity_pct": 92, "wind_speed_mps": 4.12, "weather_main": "Rain", "weather_description": "light rain", "rain_1h_mm": 0.16, "snow_1h_mm": null, "polled_at": "2026-10-07T14:26:48.591409+00:00"}
