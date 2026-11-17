@@ -17,6 +17,7 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
       .builder()
       .appName("severity-analysis-tests")
       .master("local[2]")
+      .config("spark.sql.session.timeZone", "UTC")
       .getOrCreate()
   }
 
@@ -55,8 +56,6 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
 
     val result = SeverityAnalysis.avgSeverityByLine(data).collect()
 
-    // Only the Good Service record should count — if the closed record
-    // leaked in, avgSeverity would be (10 + 20) / 2 = 15 and recordCount 2.
     val victoriaRow = result.find(_.getAs[String]("lineId") == "victoria").get
     victoriaRow.getAs[Double]("avgSeverity") shouldBe 10.0
     victoriaRow.getAs[Long]("recordCount") shouldBe 1L
@@ -66,8 +65,6 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
     val sparkSession = spark
     import sparkSession.implicits._
 
-    // Two TfL records in the same hour (12:00 and 12:30) should both join
-    // to the single 12:00 weather reading, since both truncate to 12:00.
     val tfl = Seq(
       TflLineStatus("northern", "Northern", 6, "Severe Delays", Some("signal failure"), Instant.parse("2026-07-26T12:00:00Z")),
       TflLineStatus("victoria", "Victoria", 8, "Minor Delays", Some("points failure"), Instant.parse("2026-07-26T12:30:00Z")),
@@ -82,7 +79,7 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
     val result = SeverityAnalysis.avgSeverityByWeather(tfl, weather).collect()
 
     val rainRow = result.find(_.getAs[String]("weatherMain") == "Rain").get
-    rainRow.getAs[Double]("avgSeverity") shouldBe 7.0 // (6 + 8) / 2
+    rainRow.getAs[Double]("avgSeverity") shouldBe 7.0
     rainRow.getAs[Long]("recordCount") shouldBe 2L
 
     val clearRow = result.find(_.getAs[String]("weatherMain") == "Clear").get
@@ -90,16 +87,51 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
     clearRow.getAs[Long]("recordCount") shouldBe 1L
   }
 
+  "disruptionRateByBucket" should "compute the unplanned-disruption rate per line/hour/daytype and exclude scheduled closures from the numerator" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val data = Seq(
+      TflLineStatus("central", "Central", 6, "Severe Delays", Some("signal failure"), Instant.parse("2026-07-27T12:00:00Z")),
+      TflLineStatus("central", "Central", 8, "Minor Delays", None, Instant.parse("2026-07-27T12:15:00Z")),
+      TflLineStatus("central", "Central", 4, "Planned Closure", None, Instant.parse("2026-07-27T12:30:00Z")),
+      TflLineStatus("central", "Central", 10, "Good Service", None, Instant.parse("2026-07-27T12:45:00Z"))
+    ).toDS()
+
+    val result = SeverityAnalysis.disruptionRateByBucket(data).collect()
+
+    result.length shouldBe 1
+    val row = result.head
+    row.getAs[String]("lineId") shouldBe "central"
+    row.getAs[Int]("hour") shouldBe 13
+    row.getAs[Boolean]("isWeekend") shouldBe false
+    row.getAs[Double]("disruptionRate") shouldBe 0.5
+    row.getAs[Long]("observations") shouldBe 4L
+  }
+
+  it should "treat Saturday as a weekend and separate it into its own bucket" in {
+    val sparkSession = spark
+    import sparkSession.implicits._
+
+    val data = Seq(
+      TflLineStatus("victoria", "Victoria", 6, "Severe Delays", None, Instant.parse("2026-07-25T10:00:00Z")),
+      TflLineStatus("victoria", "Victoria", 10, "Good Service", None, Instant.parse("2026-07-27T10:00:00Z"))
+    ).toDS()
+
+    val result = SeverityAnalysis.disruptionRateByBucket(data).collect()
+
+    val weekendRow = result.find(_.getAs[Boolean]("isWeekend")).get
+    weekendRow.getAs[Double]("disruptionRate") shouldBe 1.0
+    weekendRow.getAs[Long]("observations") shouldBe 1L
+
+    val weekdayRow = result.find(!_.getAs[Boolean]("isWeekend")).get
+    weekdayRow.getAs[Double]("disruptionRate") shouldBe 0.0
+  }
+
   "weatherCorrelations" should "find a strong positive correlation when severity rises with temperature by design" in {
     val sparkSession = spark
     import sparkSession.implicits._
 
-    // Planted relationship: hour 12 is cold + bad service (severity 4),
-    // hour 13 is mild + ok service (severity 8), hour 14 is warm + good
-    // service (severity 10). Temperature and severity rise together, so
-    // avgTempC should come out strongly positively correlated with
-    // avgSeverity — i.e. warmer weather associated with BETTER service
-    // here, matching the sign-interpretation note in weatherCorrelations.
     val tfl = Seq(
       TflLineStatus("northern", "Northern", 4, "Planned Closure", None, Instant.parse("2026-07-26T12:15:00Z")),
       TflLineStatus("northern", "Northern", 8, "Minor Delays", None, Instant.parse("2026-07-26T13:15:00Z")),
@@ -117,6 +149,6 @@ class SeverityAnalysisSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
     val tempCorrelation = result.find(_.getAs[String]("weatherVariable") == "avgTempC").get
       .getAs[Double]("pearsonCorrelation")
 
-    tempCorrelation should be > 0.9 // strongly positive, by construction
+    tempCorrelation should be > 0.9
   }
 }

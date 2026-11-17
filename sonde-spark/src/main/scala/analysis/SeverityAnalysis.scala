@@ -2,6 +2,7 @@ package com.milloevers.sonde.analysis
 
 import com.milloevers.sonde.model.{TflLineStatus, WeatherReading}
 import org.apache.spark.sql.{DataFrame, Dataset}
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.slf4j.LoggerFactory
 
@@ -46,6 +47,37 @@ object SeverityAnalysis {
       .select("statusSeverity", "statusDescription")
       .distinct()
       .orderBy("statusSeverity")
+
+  private val UnplannedDisruptionDescriptions: Set[String] =
+    Set("minor delays", "severe delays", "part suspended", "suspended")
+
+  private def isUnplannedDisruption(col_ : org.apache.spark.sql.Column): org.apache.spark.sql.Column =
+    lower(trim(col_)).isin(UnplannedDisruptionDescriptions.toSeq: _*)
+
+  def disruptionRateByBucket(tfl: Dataset[TflLineStatus]): DataFrame = {
+    val localZone = "Europe/London"
+
+    val deduped = {
+      val w = Window.partitionBy("lineId", "polledAt").orderBy(col("statusSeverity").asc)
+      tfl
+        .withColumn("_rn", row_number().over(w))
+        .filter(col("_rn") === 1)
+        .drop("_rn")
+    }
+
+    deduped
+      .withColumn("localTs", from_utc_timestamp(col("polledAt"), localZone))
+      .withColumn("hour", hour(col("localTs")))
+      // Spark dayofweek: 1 = Sunday .. 7 = Saturday, so weekend = {1, 7}.
+      .withColumn("isWeekend", dayofweek(col("localTs")).isin(1, 7))
+      .withColumn("isDisrupted", isUnplannedDisruption(col("statusDescription")))
+      .groupBy("lineId", "lineName", "hour", "isWeekend")
+      .agg(
+        avg(col("isDisrupted").cast("double")).as("disruptionRate"),
+        count("*").as("observations")
+      )
+      .orderBy("lineId", "hour", "isWeekend")
+  }
 
   def weatherCorrelations(
                            tfl: Dataset[TflLineStatus],

@@ -1,3 +1,5 @@
+import os
+
 import folium
 
 LINE_COLOURS = {
@@ -21,7 +23,6 @@ LINE_COLOURS = {
     "windrush": "#ED1B00",
 }
 
-# Status category -> marker colour (matches the timeline's scheme).
 STATUS_COLOURS = {
     "Good Service": "#2e7d32",
     "Minor": "#f9a825",
@@ -37,7 +38,19 @@ LONDON_CENTRE = [51.509, -0.128]
 def build_map(graph, station_status=None, route_path=None,
               origin_id=None, dest_id=None):
     station_status = station_status or {}
-    m = folium.Map(location=LONDON_CENTRE, zoom_start=12, tiles="cartodbpositron")
+    carto_key = os.environ.get("CARTO_API_KEY")
+    if carto_key:
+        m = folium.Map(
+            location=LONDON_CENTRE,
+            zoom_start=12,
+            tiles=(
+                "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                f"?api_key={carto_key}"
+            ),
+            attr="© OpenStreetMap contributors © CARTO",
+        )
+    else:
+        m = folium.Map(location=LONDON_CENTRE, zoom_start=12, tiles="OpenStreetMap")
 
     for u, v, data in graph.edges(data=True):
         lat_u, lon_u = graph.nodes[u].get("lat"), graph.nodes[u].get("lon")
@@ -51,7 +64,6 @@ def build_map(graph, station_status=None, route_path=None,
             tooltip=data.get("line_name", data["line"]),
         ).add_to(m)
 
-    # Highlight the route path on top of the network, if given.
     if route_path and len(route_path) > 1:
         coords = [
             (graph.nodes[n]["lat"], graph.nodes[n]["lon"])
@@ -67,7 +79,6 @@ def build_map(graph, station_status=None, route_path=None,
         lat, lon = node.get("lat"), node.get("lon")
         if lat is None or lon is None:
             continue
-        # Origin/destination get distinct larger markers.
         if node_id == origin_id:
             folium.Marker(
                 (lat, lon), tooltip=f"Start: {node.get('name')}",

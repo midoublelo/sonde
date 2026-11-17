@@ -17,6 +17,7 @@ object WriteAnalysisOutputs {
       .builder()
       .appName("sonde-write-analysis-outputs")
       .master("local[*]")
+      .config("spark.sql.session.timeZone", "UTC")
       .getOrCreate()
 
     import spark.implicits._
@@ -39,6 +40,10 @@ object WriteAnalysisOutputs {
     writeSingleParquet(
       SeverityAnalysis.weatherCorrelations(tflStatuses, weatherReadings),
       "weather_correlations"
+    )
+    writeSingleParquet(
+      SeverityAnalysis.disruptionRateByBucket(tflStatuses),
+      "disruption_rate_by_bucket"
     )
 
     println(s"Wrote Spark analysis outputs to $outputDir")

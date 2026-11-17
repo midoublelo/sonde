@@ -7,14 +7,18 @@ from src.storage.models import LineStatusSnapshot, WeatherSnapshot
 TUBE_LOG_PATH = "data/logs/tube_status.jsonl"
 WEATHER_LOG_PATH = "data/logs/weather.jsonl"
 
-
 def _dedupe(records: list[dict], key_fields: tuple) -> list[dict]:
     seen = {}
     for r in records:
         key = tuple(r.get(f) for f in key_fields)
-        seen[key] = r  # last write wins, but records are near-identical anyway
+        if "status_severity" in r:
+            prev = seen.get(key)
+            # Lower severity code = more disrupted = "worse" = preferred.
+            if prev is None or r["status_severity"] < prev["status_severity"]:
+                seen[key] = r
+        else:
+            seen[key] = r
     return list(seen.values())
-
 
 def rebuild() -> tuple[int, int]:
     init_db()
@@ -55,7 +59,6 @@ def rebuild() -> tuple[int, int]:
             )
 
     return len(tube_records), len(weather_records)
-
 
 if __name__ == "__main__":
     tube_count, weather_count = rebuild()

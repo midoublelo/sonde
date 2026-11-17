@@ -9,6 +9,8 @@ from scripts.build_db import rebuild as rebuild_db_from_logs
 from src.graph.tube_graph import load_graph
 from src.routing.live_routing import find_route_live, get_latest_snapshots
 from src.routing.pathfinder import StationNotFoundError, find_route, estimated_minutes
+from src.routing.reliability_routing import find_route_reliable
+from src.analytics.baseline_model import fit_model, predictions_frame, load_spark_model
 from src.storage.db import get_session, init_db
 from src.storage.models import WeatherSnapshot
 from sqlalchemy import select
@@ -51,6 +53,23 @@ def get_graph():
         return None
     return load_graph(GRAPH_PATH)
 
+@st.cache_data(ttl=300)
+def get_disruption_model():
+    """The smoothed disruption-rate model, with its provenance.
+
+    Returns (model, source) where source is "spark" if the rate table was
+    loaded from the Spark-computed Parquet, "pandas" if fitted in-process
+    from local history as a fallback, or None/"none" if there's no data.
+    Prefers Spark so the heavy aggregation lives there; both paths produce
+    an identical model."""
+    spark_model = load_spark_model()
+    if spark_model is not None:
+        return spark_model, "spark"
+    status_df = load_status_history()
+    if status_df.empty:
+        return None, "none"
+    return fit_model(status_df), "pandas"
+
 def render_live_status():
     st.subheader("Current line status")
     st.caption("Most recent snapshot per line, from the ingestion pipeline.")
@@ -92,11 +111,72 @@ def render_live_status():
         st.caption(f"as of {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}")
         st.divider()
 
+def render_forecast():
+    st.subheader("Disruption forecast")
+    st.caption(
+        "Predicted unplanned-disruption rate per line and hour, from a "
+        "smoothed historical-rate model (line x hour x weekday/weekend) "
+        "This is the model that powers reliability-aware routing. "
+        "Trained on opportunistically-sampled data, "
+        " so read it as 'how disruption-prone has this line been at"
+        " this time', not a guarantee."
+    )
+
+    model, source = get_disruption_model()
+    if model is None:
+        st.info("No history to build the model from yet.")
+        return
+
+    if source == "spark":
+        st.caption(
+            ":blue[**Model source: Spark**] — rate table precomputed by the "
+            "Scala/Spark job and loaded from "
+            "`data/spark_analysis/disruption_rate_by_bucket` (Parquet)."
+        )
+    else:
+        st.caption(
+            ":orange[**Model source: pandas fallback**] — fitted in-process "
+            "from local history, because no Spark Parquet was found. Run "
+            "`sbt run` in `sonde-spark/` to generate it."
+        )
+
+    daytype = st.radio("Day type", ["Weekday", "Weekend"], horizontal=True)
+    is_weekend = daytype == "Weekend"
+
+    preds = predictions_frame(model)
+    preds = preds[preds["Weekend"] == is_weekend]
+
+    # Heatmap: lines (rows) x hours (cols), coloured by predicted rate.
+    heat = (
+        alt.Chart(preds)
+        .mark_rect()
+        .encode(
+            x=alt.X("Hour:O", title="Hour of day (local)"),
+            y=alt.Y("Line:N", title=None),
+            color=alt.Color(
+                "Predicted disruption %:Q",
+                scale=alt.Scale(scheme="orangered"),
+                title="Predicted %",
+            ),
+            tooltip=["Line", "Hour", "Predicted disruption %", "Support (obs)"],
+        )
+        .properties(height=360)
+    )
+    st.altair_chart(heat, width="stretch")
+    st.caption(
+        "Hover any cell for the predicted rate and how many real "
+        "observations sit behind it. The model beats a naive always-"
+        "predict-the-average baseline on a held-out time split "
+        "(lower log-loss and Brier score)."
+    )
+
+
 def render_journey_planner():
     st.subheader("Journey planner")
     st.caption(
-        "Fewest-stops routing over the Tube network. Toggle live mode to "
-        "route around current disruptions instead."
+        "Three routing strategies: fastest (fewest stops), live (avoids "
+        "lines disrupted right now), and reliability-aware (avoids lines "
+        "historically unreliable at the chosen time)."
     )
 
     col1, col2 = st.columns(2)
@@ -105,12 +185,22 @@ def render_journey_planner():
     with col2:
         destination = st.text_input("To", placeholder="e.g. King's Cross")
 
-    live = st.toggle(
-        "Use live disruption data",
-        value=True,
-        help="Prefers lines currently running well; falls back to plain "
-        "fewest-stops if no ingestion data exists yet.",
+    strategy = st.radio(
+        "Routing strategy",
+        ["Fastest (fewest stops)", "Live (avoid current disruptions)",
+         "Reliability-aware (avoid historically bad lines)"],
+        index=1,
+        horizontal=False,
     )
+
+    # Reliability mode needs a time-of-day to predict for.
+    rel_hour, rel_weekend = 8, False
+    if strategy.startswith("Reliability"):
+        tcol1, tcol2 = st.columns(2)
+        with tcol1:
+            rel_hour = st.slider("Hour of day (local)", 0, 23, 8)
+        with tcol2:
+            rel_weekend = st.selectbox("Day type", ["Weekday", "Weekend"]) == "Weekend"
 
     if st.button("Find route", type="primary") and origin and destination:
         graph = get_graph()
@@ -121,9 +211,17 @@ def render_journey_planner():
             )
             return
         try:
-            if live:
+            if strategy.startswith("Live"):
                 with get_session() as session:
                     route = find_route_live(graph, origin, destination, session)
+            elif strategy.startswith("Reliability"):
+                model, _ = get_disruption_model()
+                if model is None:
+                    st.warning("No history to build the model from yet.")
+                    return
+                route = find_route_reliable(
+                    graph, origin, destination, model, rel_hour, rel_weekend
+                )
             else:
                 route = find_route(graph, origin, destination)
         except StationNotFoundError as e:
@@ -137,9 +235,12 @@ def render_journey_planner():
                     f"{leg.to_station} ({leg.stops} stop{'s' if leg.stops != 1 else ''})"
                 )
                 if leg.status_note:
-                    st.markdown(f":orange[Currently: {leg.status_note}]")
+                    st.markdown(f":orange[{leg.status_note}]")
 
-        st.caption(f"{route.total_stops} stops total, {route.interchanges} change(s)")
+        st.caption(
+            f"{route.total_stops} stops total, {route.interchanges} change(s) · "
+            f"~{estimated_minutes(route):.0f} min (estimated)"
+        )
 
 def render_cascade_preview():
     st.subheader("Cascade analysis")
@@ -652,6 +753,8 @@ def main():
     tabs = st.tabs(
         [
             "Live Status",
+            "Journey Planner",
+            "Forecast",
             "Cascade Analysis",
             "Reliability",
             "Anomalies",
@@ -664,16 +767,20 @@ def main():
         render_live_status()
         render_timeline()
     with tabs[1]:
-        render_cascade_preview()
+        render_journey_planner()
     with tabs[2]:
+        render_forecast()
+    with tabs[3]:
+        render_cascade_preview()
+    with tabs[4]:
         render_reliability()
         render_weather_crosstab()
         render_affected_stations()
-    with tabs[3]:
-        render_anomalies()
-    with tabs[4]:
-        render_patterns()
     with tabs[5]:
+        render_anomalies()
+    with tabs[6]:
+        render_patterns()
+    with tabs[7]:
         render_spark_analysis()
 
 if __name__ == "__main__":
